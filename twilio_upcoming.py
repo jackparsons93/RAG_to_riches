@@ -70,7 +70,24 @@ def extract_event_details(response):
             event_details['time'] = line.split("Time:")[1].strip()
         elif "Location:" in line:
             event_details['location'] = line.split("Location:")[1].strip()
+
+    # Ensure the event is scheduled in the current year
+    if event_details['date']:
+        event_details['date'] = ensure_current_year(event_details['date'])
+
     return event_details
+
+def ensure_current_year(date_str):
+    """Ensure that the date is in the current year if no year is specified."""
+    current_year = datetime.datetime.now().year
+    try:
+        date_obj = datetime.datetime.strptime(date_str, "%Y-%m-%d")
+        if date_obj.year < current_year:
+            date_obj = date_obj.replace(year=current_year)
+    except ValueError:
+        # If the year is not provided, assume the current year
+        date_obj = datetime.datetime.strptime(f"{current_year}-{date_str}", "%Y-%m-%d")
+    return date_obj.strftime("%Y-%m-%d")
 
 def format_datetime(date_str, time_str):
     """Format the date and time strings into ISO 8601."""
@@ -140,30 +157,23 @@ def recognize_speech_from_audio(audio):
 def voice():
     response = VoiceResponse()
 
-    # Greet the user and ask them to describe their event or ask about upcoming events
-    response.say("Hello! You can either describe an event to add to your calendar or ask for your upcoming events.")
+    # Greet the user and ask if they want to add an event or hear upcoming events
+    response.say("Hello! Would you like to add an event to your calendar, or hear your upcoming events?")
 
     # Use Twilio's <Gather> to capture speech input from the user
-    gather = Gather(input="speech", speechTimeout="auto", action="/transcribe", method="POST")
+    gather = Gather(input="speech", speechTimeout="auto", action="/handle_action", method="POST")
     response.append(gather)
 
     return str(response)
 
-# Endpoint to handle the transcribed speech
-@app.route("/transcribe", methods=['POST'])
-def transcribe():
+# Endpoint to handle the user's response
+@app.route("/handle_action", methods=['POST'])
+def handle_action():
     # Get the transcription of the user's speech
     transcription_text = request.form['SpeechResult']
     print(f"User said: {transcription_text}")
 
-    # Check if the user said "goodbye"
-    if "goodbye" in transcription_text.lower():
-        response = VoiceResponse()
-        response.say("Goodbye!")
-        response.hangup()
-        return str(response)
-
-    # Check if the user asked for upcoming events
+    # Check if the user wants to hear upcoming events
     if "upcoming events" in transcription_text.lower():
         service = get_google_calendar_service()
         upcoming_events = get_upcoming_events(service)
@@ -171,7 +181,30 @@ def transcribe():
         response.say(upcoming_events)
         return str(response)
 
-    # Otherwise, assume they want to add a new event
+    # If the user wants to add an event
+    if "add an event" in transcription_text.lower() or "add event" in transcription_text.lower():
+        response = VoiceResponse()
+        response.say("What event would you like to add to your calendar?")
+        gather = Gather(input="speech", speechTimeout="auto", action="/transcribe_event", method="POST")
+        response.append(gather)
+        return str(response)
+
+    # Default response if the action is unclear
+    response = VoiceResponse()
+    response.say("Sorry, I didn't understand that. Please say 'add an event' or 'upcoming events'.")
+    gather = Gather(input="speech", speechTimeout="auto", action="/handle_action", method="POST")
+    response.append(gather)
+
+    return str(response)
+
+# Endpoint to handle the transcribed event description
+@app.route("/transcribe_event", methods=['POST'])
+def transcribe_event():
+    # Get the transcription of the user's speech
+    transcription_text = request.form['SpeechResult']
+    print(f"Event description: {transcription_text}")
+
+    # Use OpenAI to extract event details
     gpt_response = ask_openai_for_event_details(transcription_text)
     event_details = extract_event_details(gpt_response)
 
