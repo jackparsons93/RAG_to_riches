@@ -1,12 +1,14 @@
 from flask import Flask, request, make_response
 from twilio.twiml.voice_response import VoiceResponse, Gather
 import openai
+from dotenv import load_dotenv
+import os
 
 # Initialize Flask app
 app = Flask(__name__)
 
 # Set your OpenAI API key
-openai.api_key = ''
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 # Endpoint to handle incoming voice calls
 @app.route("/voice", methods=['POST'])
